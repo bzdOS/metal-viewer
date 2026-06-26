@@ -1,0 +1,50 @@
+[package]
+name = "bsdos-metal-viewer"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "bsdos_metal_viewer"
+path = "src/lib.rs"
+
+# Mac-only deps: Metal/AppKit runtime (compiled only on macOS)
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = [
+    "NSApplication", "NSWindow", "NSView",
+    "NSEvent", "NSScreen",
+] }
+objc2-metal = "0.3"
+objc2-metal-kit = { version = "0.3", features = ["MTKView"] }
+objc2-foundation = { version = "0.3", features = [
+    "NSString", "NSData", "NSAutoreleasePool",
+    "NSThread", "NSGeometry"
+] }
+objc2-core-graphics = { version = "0.3", features = [
+    "CGBitmapContext", "CGContext", "CGColorSpace"
+] }
+objc2-core-foundation = { version = "0.3", features = [
+    "CFCGTypes"
+] }
+block2 = "0.6"
+
+# Lib-only deps: cross-platform (std + lz4_flex). zenoh and pico-args are
+# pulled in by the binary, not the lib, so `cargo test --lib` doesn't
+# trigger nightly-only transitive deps.
+[dependencies]
+lz4_flex = "0.11"
+tracing = "0.1"
+zenoh = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+libc = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+pico-args = { version = "0.5", optional = true }
+
+[features]
+default      = ["with-bridge"]
+with-bridge  = ["dep:zenoh", "dep:tokio", "dep:pico-args"]
+
+[[bin]]
+name = "bsdos-metal-viewer"
+path = "src/main.rs"
+required-features = ["with-bridge"]
