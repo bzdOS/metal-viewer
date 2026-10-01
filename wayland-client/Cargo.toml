@@ -1,0 +1,13 @@
+[package]
+name = "bsdos-wayland-client"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "bsdos-wayland-client"
+path = "src/main.rs"
+
+[dependencies]
+zenoh = { workspace = true }
+tokio = { workspace = true, features = ["net", "io-util"] }
+libc = "0.2"

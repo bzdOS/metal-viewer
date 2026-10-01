@@ -1,16 +1,16 @@
 // START_AI_HEADER
 // MODULE: lib.rs
-// PURPOSE: bsdos-metal-viewer library surface — exposes the cross-platform v1
-//          Wayland stream parser and the LZ4-based compositor state machine
-//          so they can be unit-tested without the macOS-only Metal/AppKit stack.
-// INTENT: Carve the testable logic (parser, compositor) into a lib target so
-//         that the same code path runs on the host (Linux CI) and on the Mac
-//         viewer binary. The macOS-specific code (Metal renderer, NSEvent
-//         capture, AppKit window) stays inside the binary target and is gated
-//         by `[target.'cfg(target_os = "macos")'.dependencies]` in Cargo.toml.
-//         Adding a new pure helper to either submodule is the recommended way
-//         to grow test coverage — do not bury protocol logic in main.rs.
-// DEPENDENCIES: lz4_flex (LZ4 decompress for pool pixel data), std::collections::HashMap.
+// PURPOSE: bsdos-metal-viewer library surface — re-exports the wlstream crate's
+//          parser and compositor under the wayland_stream::{stream_parser,compositor}
+//          paths main.rs already imports, plus a protocol re-export.
+// INTENT: wayland_stream.rs and protocol.rs used to be hand-rolled forks of the
+//         wlstream crate. Now they are thin re-export shims, so main.rs and its
+//         tests need no changes, but there is exactly one implementation of the
+//         wire protocol + compositor logic instead of a silently-diverging copy.
+//         The macOS-specific code (Metal renderer, NSEvent capture, AppKit window)
+//         stays inside the binary target and is gated by
+//         `[target.'cfg(target_os = "macos")'.dependencies]` in Cargo.toml.
+// DEPENDENCIES: wlstream.
 // PUBLIC_API:
 //   wayland_stream::stream_parser::{
 //       parse_events(&[u8]) -> Vec<Result<StreamEvent<'_>, String>>,
@@ -20,20 +20,16 @@
 //   }
 //   wayland_stream::compositor::{Compositor, FrameOutput}
 // START_INVARIANTS
-//   - stream_parser is pure (no IO, no allocations beyond returned Vec).
-//   - Compositor state is fully encapsulated in the struct; Compositor::new()
-//     returns the only valid starting state.
-//   - Tests live inside wayland_stream.rs (#[cfg(test)] mod tests) — there
-//     are 18 unit tests covering parser round-trip, error paths, and
-//     compositor surface/pool lifecycle; see `make metal-viewer-test`.
+//   - wayland_stream and protocol re-export wlstream verbatim — no local logic to drift.
+//   - Test coverage for parser/compositor/protocol behavior lives in the wlstream
+//     crate itself; this crate has no reason to duplicate it.
 // END_INVARIANTS
 // END_AI_HEADER
 
 // bsdos-metal-viewer library
 //
-// Exposes the v1 Wayland stream protocol parser and compositor state machine.
-// Both modules are cross-platform (no Metal, no objc2) and can be unit-tested
-// on Linux CI hosts.
+// Re-exports the wlstream crate's v1 Wayland stream protocol parser and
+// compositor state machine under this crate's existing module paths.
 
 pub mod wayland_stream;
 pub mod protocol;

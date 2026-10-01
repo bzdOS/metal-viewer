@@ -32,6 +32,7 @@ block2 = "0.6"
 # pulled in by the binary, not the lib, so `cargo test --lib` doesn't
 # trigger nightly-only transitive deps.
 [dependencies]
+wlstream = { git = "https://github.com/bzdOS/wlstream", rev = "925b8f7" }
 lz4_flex = "0.11"
 tracing = "0.1"
 zenoh = { workspace = true, optional = true }
@@ -48,3 +49,18 @@ with-bridge  = ["dep:zenoh", "dep:tokio", "dep:pico-args"]
 name = "bsdos-metal-viewer"
 path = "src/main.rs"
 required-features = ["with-bridge"]
+
+# Standalone workspace (was a member of the bsdOS monorepo workspace).
+[workspace]
+members = [".", "wayland-client"]
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
+zenoh = { version = "1", default-features = false, features = ["transport_tcp", "transport_tls", "transport_ws"] }
+
+# FreeBSD fixes + the obfs link: https://github.com/bzdOS/zenoh-freebsd
+[patch.crates-io]
+zenoh-util         = { git = "https://github.com/bzdOS/zenoh-freebsd" }
+zenoh-link-commons = { git = "https://github.com/bzdOS/zenoh-freebsd" }
+zenoh-link-tls     = { git = "https://github.com/bzdOS/zenoh-freebsd" }
+zenoh-link         = { git = "https://github.com/bzdOS/zenoh-freebsd" }
