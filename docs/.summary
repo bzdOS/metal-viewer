@@ -1,0 +1,218 @@
+bsdOS Display Stream Viewer - Build Summary
+═════════════════════════════════════════════
+
+Creation Date: 2026-06-06
+Location: /srv/bsdos/mac-companion/
+
+✓ COMPLETE - All files created and tested
+
+═══════════════════════════════════════════════════════════════
+
+FILES CREATED (11 total)
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+Documentation:
+  ✓ 00-START-HERE.md       - Entry point for new users
+  ✓ INDEX.md               - Complete navigation index
+  ✓ QUICKSTART.md          - 5-minute quick start guide
+  ✓ INSTALL.md             - Detailed installation guide
+  ✓ README.md              - Full reference documentation
+  ✓ FILES.txt              - File manifest
+
+Executables:
+  ✓ display-viewer.py      - Main viewer application
+  ✓ display-stream.sh      - SSH wrapper + convenience CLI
+  ✓ zenoh-inspect.py       - Zenoh topic debugging tool
+  ✓ setup.sh               - Automated dependency installer
+
+Configuration:
+  ✓ requirements.txt       - Python package versions
+
+═══════════════════════════════════════════════════════════════
+
+KEY FEATURES
+━━━━━━━━━━━━
+
+✓ Real-time frame streaming from FreeBSD guest
+✓ Zenoh pub/sub transport (zero-copy, Cap'n Proto)
+✓ Local TCP and SSH tunnel support
+✓ Automatic PPM → PNG conversion for macOS QuickLook
+✓ Cross-platform (macOS, Linux)
+✓ Minimal dependencies (Python 3.8+, zenoh, pillow)
+✓ Comprehensive documentation
+✓ Debugging tools included
+
+═══════════════════════════════════════════════════════════════
+
+QUICK START
+━━━━━━━━━━━
+
+1. Read first:
+   cat /srv/bsdos/mac-companion/00-START-HERE.md
+
+2. Install dependencies:
+   bash /srv/bsdos/mac-companion/setup.sh
+
+3. Start broker (on FreeBSD guest):
+   ssh -p 2222 -i /srv/bsdos/bsdos-key freebsd@localhost
+   su -m root -c '/opt/proto-src/broker/target/release/broker'
+
+4. Run viewer (on Mac):
+   cd /srv/bsdos/mac-companion
+   python3 display-viewer.py
+
+5. Frames appear → ✓ Success
+
+═══════════════════════════════════════════════════════════════
+
+USAGE EXAMPLES
+━━━━━━━━━━━━━━
+
+Local viewing:
+  python3 /srv/bsdos/mac-companion/display-viewer.py
+
+With SSH tunnel (recommended for remote):
+  /srv/bsdos/mac-companion/display-stream.sh --tunnel
+
+Direct to remote broker:
+  /srv/bsdos/mac-companion/display-stream.sh --peer tcp/192.168.1.100:7447
+
+Debug Zenoh topics:
+  python3 /srv/bsdos/mac-companion/zenoh-inspect.py
+
+═══════════════════════════════════════════════════════════════
+
+DOCUMENTATION STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━
+
+00-START-HERE.md   Entry point, scenario guides
+    ↓
+QUICKSTART.md      5-min walkthrough (OR)
+INSTALL.md         Step-by-step setup
+    ↓
+README.md          Full reference + examples
+    ↓
+zenoh-inspect.py   Debugging when issues arise
+
+For lost users: INDEX.md (complete navigation)
+
+═══════════════════════════════════════════════════════════════
+
+ARCHITECTURE
+━━━━━━━━━━━━
+
+FreeBSD Guest               Mac / Linux
+┌──────────────────┐       ┌─────────────────────┐
+│ HAL/Display      │       │                     │
+│ /dev/fb0         │──────→│ display-viewer.py   │
+│ framebuffer      │ Zenoh │ • TCP 7447 (Zenoh)  │
+│ 30 FPS           │ TCP   │ • QuickLook preview │
+└──────────────────┘ (SSH  │ • PNG files saved   │
+                      tunnel) └─────────────────────┘
+Broker: /opt/proto-src/broker/target/release/broker
+Topic: bsdos/display/frame (Cap'n Proto frames)
+
+═══════════════════════════════════════════════════════════════
+
+ENVIRONMENT VARIABLES
+━━━━━━━━━━━━━━━━━━━━
+
+ZENOH_PEER=tcp/localhost:7447     # Broker endpoint
+SSH_USER=freebsd                   # SSH username
+SSH_HOST=localhost                 # SSH hostname
+SSH_PORT=2222                      # SSH port
+SSH_KEY=~/.ssh/bsdos-key          # SSH private key
+
+═══════════════════════════════════════════════════════════════
+
+SYSTEM REQUIREMENTS
+━━━━━━━━━━━━━━━━━
+
+Minimum:
+  Python 3.8
+  macOS 10.13 or Linux
+  512 MB RAM
+  TCP/7447 network access
+
+Recommended:
+  Python 3.10+
+  macOS 12+ or Ubuntu 20.04+
+  2+ GB RAM
+  1+ GB disk (for frame cache)
+
+═══════════════════════════════════════════════════════════════
+
+TROUBLESHOOTING
+━━━━━━━━━━━━━━━━
+
+Problem: "Failed to connect: tcp/localhost:7447"
+Fix:     Broker not running. Start: make vm-start && make vm-ssh
+         Then: su -m root -c '/opt/proto-src/broker/target/release/broker'
+
+Problem: "No frames received in 10s"
+Fix:     Check if display driver is publishing:
+         python3 zenoh-inspect.py --follow bsdos/display/frame
+
+Problem: "ModuleNotFoundError: No module named 'zenoh'"
+Fix:     pip3 install eclipse-zenoh pillow
+
+Problem: "SSH tunnel: Connection refused"
+Fix:     VM may not be running. Check: make vm-status
+
+See README.md#troubleshooting for more detailed help.
+
+═══════════════════════════════════════════════════════════════
+
+DEPENDENCIES INSTALLED
+━━━━━━━━━━━━━━━━━━━━
+
+Python packages (from requirements.txt):
+  eclipse-zenoh >= 0.10.0  (Zenoh pub/sub)
+  Pillow >= 10.0.0         (Image conversion)
+
+Installation:
+  pip3 install -r requirements.txt
+  OR
+  bash setup.sh
+
+═══════════════════════════════════════════════════════════════
+
+OUTPUT LOCATIONS
+━━━━━━━━━━━━━━━
+
+Frames saved to:
+  macOS:   ~/Library/Caches/bsdOS/
+  Linux:   /tmp/bsdos-viewer/
+
+Files:
+  latest.ppm              Raw PPM (always saved)
+  frame-XXXXXX-*.png      Timestamped PNG (QuickLook preview)
+
+═══════════════════════════════════════════════════════════════
+
+NEXT STEPS
+━━━━━━━━━━
+
+1. Read: 00-START-HERE.md
+   (pick your scenario and get instructions)
+
+2. Install: bash setup.sh
+   (automated dependency installer)
+
+3. Start broker:
+   (on FreeBSD guest via VM)
+
+4. Run viewer:
+   python3 display-viewer.py
+
+═══════════════════════════════════════════════════════════════
+
+For more information, see:
+  /srv/bsdos/CLAUDE.md              Project rules
+  /srv/bsdos/schema.capnp           Cap'n Proto schema
+  /srv/bsdos/Makefile               VM/broker targets
+
+═══════════════════════════════════════════════════════════════
+
+Status: ✓ READY FOR USE
+Last updated: 2026-06-06

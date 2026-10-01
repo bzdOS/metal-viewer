@@ -1,0 +1,196 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                  bsdOS Wayland → Metal Display Streaming                     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ bsdOS VM (FreeBSD 14.4 aarch64, QEMU/KVM)                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  User Space:                                                                  │
+│  ┌──────────────────────────┐                                               │
+│  │ Wayland Compositor: cage │  (kiosk WM, lightweight)                      │
+│  │ (via seatd, systemd)     │                                               │
+│  │                          │                                               │
+│  │ /tmp/wayland-run/        │                                               │
+│  │ └─ wayland-0 (socket)    │                                               │
+│  └──────────────────────────┘                                               │
+│          │                                                                   │
+│          │ Wayland protocol (local socket)                                  │
+│          ▼                                                                   │
+│  ┌──────────────────────────────────────────────────────────┐               │
+│  │ wf-recorder (Wayland screencopy protocol)                │               │
+│  │  Input:  WAYLAND_DISPLAY=wayland-0                      │               │
+│  │  Output: rawvideo RGBA32 frames → stdout                │               │
+│  │  Format: [H×W×4 bytes per frame, no headers]            │               │
+│  │  FPS:    30 (configurable)                              │               │
+│  │  Size:   3.6 MB/frame @ 1280×720                        │               │
+│  └──────────────────────────────────────────────────────────┘               │
+│          │                                                                   │
+│          │ Pipe (raw binary RGBA frames)                                    │
+│          ▼                                                                   │
+│  ┌──────────────────────────────────────────────────────────┐               │
+│  │ bsdos-screencopy-sender (Zenoh publisher)               │               │
+│  │                                                           │               │
+│  │ Read from stdin:                                        │               │
+│  │   • RGBA32 pixel data (rows of 4-byte pixels)          │               │
+│  │   • Continue until EOF (wf-recorder terminates)         │               │
+│  │                                                           │               │
+│  │ Pack into Zenoh packet:                                 │               │
+│  │   [0..3]    : width u32 BE   (e.g., 1280)              │               │
+│  │   [4..7]    : height u32 BE  (e.g., 720)               │               │
+│  │   [8..11]   : stride u32 BE  (e.g., 5120 = 1280*4)     │               │
+│  │   [12..]    : RGBA pixel data (H*W*4 bytes)            │               │
+│  │                                                           │               │
+│  │ Publish to Zenoh broker @ localhost:7447                │               │
+│  └──────────────────────────────────────────────────────────┘               │
+│          │                                                                   │
+│          │ Zenoh protocol (TCP localhost)                                   │
+│          ▼                                                                   │
+│  ┌──────────────────────────────────────────────────────────┐               │
+│  │ bsdos-core / Zenoh Broker                                │               │
+│  │                                                           │               │
+│  │ Topic: bsdos/display/frame                              │               │
+│  │   └─ Subscribers: (none locally)                        │               │
+│  │   └─ External subscribers via tunnel                    │               │
+│  │                                                           │               │
+│  │ Other topics (control, telemetry, etc.)                 │               │
+│  └──────────────────────────────────────────────────────────┘               │
+│                           │                                                   │
+└───────────────────────────┼─────────────────────────────────────────────────┘
+                            │ Zenoh TCP loopback (port 7447)
+                            │ (encrypted via SSH tunnel)
+                            ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Linux Host (SSH Server)                                                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  User shell:                                                                 │
+│  $ ssh -L 7447:127.0.0.1:7447 freebsd@vm-host                               │
+│                                                                              │
+│  Forwards:                                                                   │
+│    macOS localhost:7447 → Linux localhost:7447 → VM localhost:7447          │
+│                                                                               │
+│  (Connection stays open for entire duration of viewing session)              │
+│                                                                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+                            │ SSH tunnel (encrypted)
+                            │ localhost:7447
+                            ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ macOS (Apple Silicon or Intel, Metal GPU)                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  ┌──────────────────────────────────────────────────────────┐               │
+│  │ bsdos-metal-viewer (Rust + Objective-C via objc2)       │               │
+│  │                                                           │               │
+│  │ Thread 1: Zenoh Receiver (async Tokio)                  │               │
+│  │   └─ Subscribe: bsdos/display/frame                     │               │
+│  │   └─ Decode packet: [w][h][stride][pixels]             │               │
+│  │   └─ Update: frame_buffer (Arc<Mutex<>>)                │               │
+│  │                                                           │               │
+│  │ Thread 2: Render Loop (60fps, 16.67ms per frame)        │               │
+│  │   └─ Check: is frame_buffer.dirty?                      │               │
+│  │   └─ Lock: frame_buffer                                 │               │
+│  │   └─ Update: MTLTexture from RGBA data                  │               │
+│  │   └─ Schedule: GPU render (TODO: CAMetalLayer setup)    │               │
+│  │                                                           │               │
+│  │ UI Thread 3: NSApplication main event loop              │               │
+│  │   └─ NSWindow + MTKView (Metal drawable)                │               │
+│  │   └─ Event handling (keyboard, mouse — future)          │               │
+│  │                                                           │               │
+│  │ Data flow:                                              │               │
+│  │   Frame buffer (RGBA)                                  │               │
+│  │        ↓ (copy)                                         │               │
+│  │   MTLTexture (GPU texture)                              │               │
+│  │        ↓ (render pass)                                  │               │
+│  │   CAMetalLayer drawable                                │               │
+│  │        ↓ (present)                                      │               │
+│  │   NSWindow → macOS display                              │               │
+│  │                                                           │               │
+│  │ Window:  NSWindow 1280×720                              │               │
+│  │ View:    MTKView (Metal Kit View)                       │               │
+│  │ Render:  Metal GPU (all Macs support Metal)             │               │
+│  └──────────────────────────────────────────────────────────┘               │
+│          │                                                                   │
+│          ▼                                                                   │
+│  ┌──────────────────────────────────────────────────────────┐               │
+│  │ macOS Display (Retina, liquid Retina, etc.)             │               │
+│  │ Resolution: native (scaled if needed)                    │               │
+│  │ Refresh: 60Hz (synced with frame available)             │               │
+│  │                                                           │               │
+│  │ Result: Live video stream from VM on Mac display         │               │
+│  │ Latency: ~25-50ms (capture → display)                   │               │
+│  │ Quality: RGBA32 (no compression loss)                    │               │
+│  │ Framerate: up to 60fps (limited by wf-recorder @ 30fps) │               │
+│  └──────────────────────────────────────────────────────────┘               │
+│                                                                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════════
+
+PROTOCOL DETAILS
+
+Zenoh Topic: bsdos/display/frame
+
+Packet format (binary, big-endian integers):
+┌────────┬────────┬────────┬──────────────────────────────────┐
+│ Width  │ Height │ Stride │ RGBA32 Pixel Data               │
+│ 4 bytes│ 4 bytes│ 4 bytes│ height × stride bytes           │
+└────────┴────────┴────────┴──────────────────────────────────┘
+
+Example (1280×720):
+Offset  Type      Value          Description
+  0     u32 BE    0x00000500     width = 1280
+  4     u32 BE    0x000002D0     height = 720
+  8     u32 BE    0x00001400     stride = 5120 (1280 × 4)
+  12    u8[n]     [RGBA...]      pixel data (3,686,400 bytes)
+
+Total size: 12 + 3,686,400 = 3,686,412 bytes
+
+Data bandwidth (uncompressed):
+  30fps @ 1280×720:   ~110 MB/s
+  60fps @ 1280×720:   ~220 MB/s
+
+═══════════════════════════════════════════════════════════════════════════════
+
+LATENCY BREAKDOWN
+
+VM → wf-recorder capture:        2-5ms
+  (Wayland copy-free protocol)
+
+screencopy-sender pack + send:  1-3ms
+  (simple memcpy + Zenoh publish)
+
+SSH tunnel transit:              5-15ms
+  (network + encryption)
+
+Metal texture upload:            10-20ms
+  (GPU memory transfer, depends on GPU)
+
+Render + present:                2-5ms
+  (GPU rendering, CADisplayLink sync)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Total latency (E2E):            ~25-50ms (typical)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+DEPENDENCIES & VERSIONS
+
+FreeBSD VM:
+  • FreeBSD 14.4+ (aarch64)
+  • Wayland + wf-recorder
+  • Zenoh 0.11+
+  • Rust 1.70+
+
+Linux Host:
+  • OpenSSH (any version with -L port forwarding)
+  • Makefile targets (gnu-make)
+
+macOS:
+  • macOS 11.0+ (Big Sur or newer)
+  • Metal GPU (all modern Macs have this)
+  • Rust 1.70+
+  • Xcode Command Line Tools
+
+═══════════════════════════════════════════════════════════════════════════════
